@@ -54,7 +54,7 @@ Ext.define('Ext.data.proxy.WebSql', {
          * @cfg {String} pkType
          * Type of primary key. By default it an autoincrementing integer
          */
-        pkType: 'INTEGER PRIMARY KEY ASC',
+        pkType: 'TEXT PRIMARY KEY ASC',
 
         /**
          * @cfg {Array} initialData
@@ -93,11 +93,11 @@ Ext.define('Ext.data.proxy.WebSql', {
         
         // Ext.data.proxy.WebSql.superclass.constructor.call(this, config);
         this.initConfig(config);
-        this.callParent(arguments);
+        
         this.checkDependencies();
 
         this.addEvents('dbopen', 'updatedb', 'exception', 'cleardb', 'initialDataInserted', 'noWebDb');
-
+        this.callParent(arguments);
         // this.initialize();
     },
 
@@ -116,7 +116,6 @@ Ext.define('Ext.data.proxy.WebSql', {
         db.transaction(function (tx) {
             pk = me.getPkField() || me.getReader().idProperty || pk;
             me.setPkField(pk);
-
             var createTable = function () {
                     tx.executeSql('CREATE TABLE IF NOT EXISTS ' + me.getDbTable() + '(' + pk + ' ' + me.getPkType() + ', ' + me.constructFields() + ')', [], Ext.bind(me.addInitialData, me), //on success
                     Ext.bind(me.onError, me)); // on error
@@ -133,18 +132,17 @@ Ext.define('Ext.data.proxy.WebSql', {
      * @return {String} fields separated by a comma
      */
     constructFields: function () {
-
         var me = this,
             m = me.getModel(),
             fields = m.prototype.fields.items,
             flatFields = [];
 
         Ext.each(fields, function (f) {
-            var name = f.name;
+            var name = f.getName();
             if (name == me.getPkField()) {
                 return;
             }
-            var type = f.type.type;
+            var type = f.getType().type;
 
             type = type.replace(/int/i, 'INTEGER').replace(/string/i, 'TEXT').replace(/date/i, 'DATETIME');
 
@@ -199,9 +197,8 @@ Ext.define('Ext.data.proxy.WebSql', {
     addData: function (newData, clearFirst) {
 
         var me = this,
-            model = me.model.modelName,
+            model = me.getModel().modelName,
             data = newData || me.getInitialData();
-
         //clear objectStore first
         if (clearFirst === true) {
             me.clear();
@@ -212,12 +209,12 @@ Ext.define('Ext.data.proxy.WebSql', {
         if (Ext.isObject(data) && data.isStore === true) {
             data = me.getDataFromStore(data);
         }
-
+        // console.log(data);
         me.initialDataCount = data.length;
         me.insertingInitialData = true;
 
         Ext.each(data, function (entry) {
-            Ext.ModelManager.create(entry, model).save();
+            Ext.create(model,entry).save();
         })
     },
 
@@ -239,13 +236,11 @@ Ext.define('Ext.data.proxy.WebSql', {
     },
     //inherit docs
     create: function (operation, callback, scope) {
-
-        var records = operation.records,
+        var records = operation.getRecords(),
             length = records.length,
             id, record, i;
-
         operation.setStarted();
-
+        
         for (i = 0; i < length; i++) {
             record = records[i];
             this.setRecord(record);
@@ -267,12 +262,11 @@ Ext.define('Ext.data.proxy.WebSql', {
 
         var finishReading = function (record) {
                 me.readCallback(operation, record);
-
                 if (typeof callback == 'function') {
                     callback.call(scope || this, operation);
                 }
             }
-
+console.log(operation);
             //read a single record
         if (operation.id) {
             this.getRecord(operation.id, finishReading, me);
@@ -286,7 +280,8 @@ Ext.define('Ext.data.proxy.WebSql', {
      * Injects data in operation instance
      */
     readCallback: function (operation, records) {
-
+console.log(operation);
+console.log(records);
         var rec = Ext.isArray(records) ? records : [records];
         operation.setSuccessful();
         operation.setCompleted();
@@ -306,11 +301,9 @@ Ext.define('Ext.data.proxy.WebSql', {
 
     //inherit docs
     update: function (operation, callback, scope) {
-
-        var records = operation.records,
+        var records = operation.getRecords(),
             length = records.length,
             record, id, i;
-
         operation.setStarted();
 
         for (i = 0; i < length; i++) {
@@ -328,7 +321,7 @@ Ext.define('Ext.data.proxy.WebSql', {
     //inherit
     destroy: function (operation, callback, scope) {
 
-        var records = operation.records,
+        var records = operation.getRecords(),
             length = records.length,
             i;
 
@@ -361,6 +354,7 @@ Ext.define('Ext.data.proxy.WebSql', {
         for (; i < rows.length; i++) {
             data.push(rows.item(i));
         }
+
         return data;
     },
 
@@ -374,7 +368,7 @@ Ext.define('Ext.data.proxy.WebSql', {
     getRecord: function (id, callback, scope) {
 
         var me = this,
-            Model = this.model,
+            Model = this.getModel(),
             record, onSuccess = function (tx, rs) {
                 var result = me.parseData(tx, rs);
                 record = new Model(result, id);
@@ -402,12 +396,13 @@ Ext.define('Ext.data.proxy.WebSql', {
     getAllRecords: function (callback, scope) {
 
         var me = this,
-            Model = this.model,
+            Model = me.getModel(),
             record, onSuccess = function (tx, rs) {
                 var records = me.parseData(tx, rs),
                     results = [],
                     i = 0,
                     id;
+                    console.log(rs);
                 for (; i < records.length; i++) {
                     id = records[i][me.getPkField()];
                     results.push(new Model(records[i], id));
@@ -431,7 +426,7 @@ Ext.define('Ext.data.proxy.WebSql', {
      * @param {Ext.data.Model} record The model instance
      */
     setRecord: function (record) {
-
+        console.log(record);
         var me = this,
             rawData = record.data,
             fields = [],
@@ -446,14 +441,20 @@ Ext.define('Ext.data.proxy.WebSql', {
                     }
                 }
             };
-
         //extract data to be inserted
         for (var i in rawData) {
             fields.push('"' + i + '"');
-            values.push(rawData[i]);
+            var value = rawData[i];
+            if(value == null){
+                value = '';
+            }
+            if(Ext.typeOf(value) == 'date'){
+                value = Ext.Date.format(value,'Y-m-d H:i:s');
+            }
+            console.log(value);
+            values.push(value);
             placeholders.push('?');
         }
-
         me.db.transaction(function (tx) {
             tx.executeSql('INSERT INTO ' + me.getDbTable() + '(' + fields.join(',') + ') VALUES (' + placeholders.join(',') + ')', values, onSuccess, //on success
             Ext.bind(me.onError, me)); // on error
